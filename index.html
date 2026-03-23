@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>クレーン使用申請</title>
+
+<style>
+body{font-family:sans-serif;background:#f2f4f7;padding:20px;}
+.card{background:#fff;padding:20px;border-radius:12px;max-width:520px;margin:auto;}
+label{display:block;margin-top:12px;font-weight:bold;}
+input,select,textarea{width:100%;padding:8px;margin-top:4px;border-radius:6px;border:1px solid #ccc;}
+button{margin-top:15px;padding:10px;width:100%;background:#2b7cff;color:white;border:none;border-radius:8px;}
+button:disabled{background:#999;}
+.shipWrap{display:flex;}
+.prefix{background:#ddd;padding:8px;border:1px solid #ccc;border-right:none;}
+.cancelBtn{background:#e74c3c;}
+table{margin-top:25px;width:100%;border-collapse:collapse;}
+td,th{border:1px solid #ccc;padding:6px;font-size:12px;text-align:center;}
+#status{margin-top:10px;font-weight:bold;text-align:center;}
+</style>
+
+</head>
+<body>
+
+<div class="card">
+
+<h2>クレーン使用申請</h2>
+
+<label>依頼日</label> <input type="date" id="date">
+
+<label>時間</label> <select id="time"></select>
+
+<label>船番</label>
+
+<div class="shipWrap">
+<div class="prefix">SA</div>
+<input id="ship">
+</div>
+
+<label>ブロック</label> <input id="block">
+
+<label>内容</label> <select id="content">
+
+<option>搬入</option>
+<option>組込</option>
+<option>反転</option>
+<option>搬出</option>
+</select>
+
+<label>規模</label> <select id="scale">
+
+<option>中組</option>
+<option>大組</option>
+</select>
+
+<label>材料</label> <select id="material">
+
+<option>ベース板</option>
+<option>ロンジ材</option>
+<option>SUB材</option>
+</select>
+
+<label>備考</label>
+
+<textarea id="note"></textarea>
+
+<button id="sendBtn">申請</button>
+
+<div id="status"></div>
+
+<h3>あなたの申請（2日以内）</h3>
+
+<table>
+<thead>
+<tr>
+<th>日</th>
+<th>時間</th>
+<th>船番</th>
+<th>内容</th>
+<th></th>
+</tr>
+</thead>
+<tbody id="myList"></tbody>
+</table>
+
+</div>
+
+<script>
+
+const GAS_URL="https://script.google.com/macros/s/AKfycbzJgw0q_9MUO-VdsJuP11HHjYxbko-TA-o2lfXiNthJNkZhMXzvsSulZIQFNGT8hLIu/exec";
+
+const sendBtn=document.getElementById("sendBtn");
+const status=document.getElementById("status");
+
+const time=document.getElementById("time");
+const date=document.getElementById("date");
+const ship=document.getElementById("ship");
+const block=document.getElementById("block");
+const content=document.getElementById("content");
+const scale=document.getElementById("scale");
+const material=document.getElementById("material");
+const note=document.getElementById("note");
+
+let sending=false;
+
+/* 時間生成 */
+for(let h=8;h<=17;h++){
+let t=("0"+h).slice(-2)+":00";
+let opt=document.createElement("option");
+opt.value=t;
+opt.textContent=t;
+time.appendChild(opt);
+}
+time.selectedIndex = 0;
+
+/* ID生成 */
+function makeID(){
+return Math.random().toString(36).substring(2,10);
+}
+
+/* 履歴表示 */
+function loadMy(){
+
+let data=JSON.parse(localStorage.getItem("myCrane")||"[]");
+
+const limit=Date.now()-172800000;
+data=data.filter(d=>d.timeStamp>limit);
+
+localStorage.setItem("myCrane",JSON.stringify(data));
+
+data.sort((a,b)=>b.timeStamp-a.timeStamp);
+
+const tbody=document.getElementById("myList");
+tbody.innerHTML="";
+
+data.forEach(d=>{
+let dt=new Date(d.date);
+let shortDate=(dt.getMonth()+1)+"/"+dt.getDate();
+
+const tr=document.createElement("tr");
+
+tr.innerHTML=
+"<td>"+shortDate+"</td>"+
+"<td>"+d.time+"</td>"+
+"<td>"+d.ship+"</td>"+
+"<td>"+d.content+"</td>"+
+"<td><button class='cancelBtn' onclick='cancelReq(\""+d.id+"\")'>取消</button></td>";
+
+tbody.appendChild(tr);
+});
+}
+
+/* 申請 */
+sendBtn.addEventListener("click",send);
+
+async function send(){
+
+if(sending) return;
+
+/* ★直前のみブロック */
+const hash = JSON.stringify({
+date:date.value,
+time:time.value,
+ship:ship.value,
+block:block.value,
+content:content.value,
+scale:scale.value,
+material:material.value
+});
+
+const prev = localStorage.getItem("craneLastHash");
+
+if(prev === hash){
+status.textContent="同じ内容の連続申請はできません";
+return;
+}
+
+/* データ */
+const data={
+mode:"add",
+id:makeID(),
+timeStamp:Date.now(),
+
+date:date.value,
+time:time.value,
+ship:"SA"+ship.value,
+block:block.value,
+content:content.value,
+scale:scale.value,
+material:material.value,
+note:note.value
+};
+
+sending=true;
+sendBtn.disabled=true;
+status.textContent="申請中...";
+
+await fetch(GAS_URL,{
+method:"POST",
+mode:"no-cors",
+body:JSON.stringify(data)
+});
+
+/* 保存 */
+localStorage.setItem("craneLastHash",hash);
+
+let my=JSON.parse(localStorage.getItem("myCrane")||"[]");
+my.push(data);
+localStorage.setItem("myCrane",JSON.stringify(my));
+
+status.textContent="申請完了";
+
+loadMy();
+
+sendBtn.disabled=false;
+sending=false;
+
+}
+
+/* 取消 */
+async function cancelReq(id){
+
+let my=JSON.parse(localStorage.getItem("myCrane")||"[]");
+
+const item=my.find(x=>x.id==id);
+if(!item)return;
+
+let dt=new Date(item.date);
+let shortDate=(dt.getMonth()+1)+"/"+dt.getDate();
+
+const msg =
+"この申請を取消しますか？\n\n"+
+"日付: "+shortDate+"\n"+
+"時間: "+item.time+"\n"+
+"船番: "+item.ship+"\n"+
+"ブロック: "+item.block+"\n"+
+"内容: "+item.content+"\n"+
+"規模: "+item.scale+"\n"+
+"材料: "+item.material+"\n"+
+"備考: "+item.note;
+
+const ok=confirm(msg);
+if(!ok)return;
+
+await fetch(GAS_URL,{
+method:"POST",
+mode:"no-cors",
+body:JSON.stringify({
+mode:"delete",
+id:id
+})
+});
+
+my=my.filter(x=>x.id!=id);
+localStorage.setItem("myCrane",JSON.stringify(my));
+
+loadMy();
+
+}
+
+loadMy();
+
+</script>
+
+</body>
+</html>
